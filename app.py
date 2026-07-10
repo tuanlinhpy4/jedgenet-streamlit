@@ -95,10 +95,12 @@ st.markdown(
         background: var(--accent);
         border-color: var(--accent);
       }
-      [data-testid="stImage"] img {
+      [data-testid="stImage"] img,
+      [data-testid="stImageContainer"] img {
         width: 100%;
-        height: 300px;
-        object-fit: contain;
+        height: 280px !important;
+        max-height: 280px !important;
+        object-fit: contain !important;
         background: #050706;
         border-radius: 6px;
       }
@@ -144,9 +146,34 @@ st.markdown(
         gap: 16px;
         color: var(--ink);
         font-size: 14px;
-        margin: 5px 0 2px;
+        margin-bottom: 5px;
       }
-      [data-testid="stProgress"] { margin-bottom: 1px; }
+      .confidence-heading {
+        color: var(--ink);
+        font: 700 20px/1.2 sans-serif;
+        margin: 14px 0 10px;
+      }
+      .confidence-item { margin-top: 10px; }
+      .confidence-track {
+        width: 100%;
+        height: 7px;
+        overflow: hidden;
+        background: #e4e9e6;
+        border-radius: 4px;
+      }
+      .confidence-fill {
+        height: 100%;
+        background: var(--accent);
+        border-radius: 4px;
+      }
+      .truth-banner {
+        border-radius: 6px;
+        padding: 9px 12px;
+        font-size: 14px;
+        line-height: 1.35;
+      }
+      .truth-correct { color: #146c37; background: #dff3e6; }
+      .truth-incorrect { color: #8a5700; background: #fff0cf; }
       @media (max-width: 720px) {
         [data-testid="stMainBlockContainer"] { padding-top: 0.7rem; }
         .brand-name { font-size: 25px; }
@@ -154,7 +181,11 @@ st.markdown(
         .desktop-subtitle { display: none; }
         .mobile-subtitle { display: inline; }
         .prediction-label { font-size: 24px; }
-        [data-testid="stImage"] img { height: 250px; }
+        [data-testid="stImage"] img,
+        [data-testid="stImageContainer"] img {
+          height: 240px !important;
+          max-height: 240px !important;
+        }
         div[data-testid="stSegmentedControl"] [data-baseweb="button-group"] {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -190,16 +221,23 @@ def get_test_images(class_directory: str) -> tuple[str, ...]:
 
 
 def render_score_breakdown(scores: tuple[float, ...]) -> None:
-    st.markdown("#### Confidence scores")
+    rows = []
     for class_name, score in sorted(
         zip(CLASS_NAMES, scores), key=lambda item: item[1], reverse=True
     ):
-        st.markdown(
+        percentage = score * 100
+        rows.append(
+            '<div class="confidence-item">'
             f'<div class="score-row"><span>{html.escape(class_name)}</span>'
-            f"<strong>{score * 100:.1f}%</strong></div>",
-            unsafe_allow_html=True,
+            f"<strong>{percentage:.1f}%</strong></div>"
+            '<div class="confidence-track">'
+            f'<div class="confidence-fill" style="width:{percentage:.2f}%"></div>'
+            "</div></div>"
         )
-        st.progress(score)
+    st.markdown(
+        '<div class="confidence-heading">Confidence scores</div>' + "".join(rows),
+        unsafe_allow_html=True,
+    )
 
 
 st.markdown(
@@ -222,9 +260,9 @@ image = None
 source_label = None
 expected_class = None
 
-input_col, result_col = st.columns((0.92, 1.08), gap="large")
+controls_col, _ = st.columns((0.92, 1.08), gap="large")
 
-with input_col:
+with controls_col:
     st.markdown('<div class="section-label">Input</div>', unsafe_allow_html=True)
     input_mode = st.segmented_control(
         "Input source",
@@ -242,21 +280,24 @@ with input_col:
         st.caption(
             f"Browse all {sum(test_image_counts.values())} images from the held-out test split."
         )
-        expected_class = st.selectbox(
-            "Ground-truth class",
-            options=tuple(TEST_CLASS_DIRS),
-            format_func=lambda class_name: (
-                f"{class_name} ({test_image_counts[class_name]} images)"
-            ),
-        )
+        class_select_col, image_select_col = st.columns(2, gap="small")
+        with class_select_col:
+            expected_class = st.selectbox(
+                "Ground-truth class",
+                options=tuple(TEST_CLASS_DIRS),
+                format_func=lambda class_name: (
+                    f"{class_name} ({test_image_counts[class_name]})"
+                ),
+            )
 
         class_directory = TEST_CLASS_DIRS[expected_class]
         test_images = get_test_images(class_directory)
-        selected_name = st.selectbox(
-            "Test image",
-            options=test_images,
-            placeholder="No test images found",
-        )
+        with image_select_col:
+            selected_name = st.selectbox(
+                "Test image",
+                options=test_images,
+                placeholder="No test images found",
+            )
 
         if selected_name:
             selected_path = TEST_DATA_DIR / class_directory / selected_name
@@ -285,8 +326,13 @@ with input_col:
                     icon=":material/error:",
                 )
 
-    if image is not None:
-        st.markdown('<div class="section-label">Preview</div>', unsafe_allow_html=True)
+preview_col, result_col = st.columns((0.92, 1.08), gap="large")
+
+with preview_col:
+    st.markdown('<div class="section-label">Preview</div>', unsafe_allow_html=True)
+    if image is None:
+        st.info("No image selected.", icon=":material/image:")
+    else:
         st.image(image, caption=source_label, width="stretch")
 
 with result_col:
@@ -317,9 +363,14 @@ with result_col:
         )
         if expected_class is not None:
             if prediction.class_name == expected_class:
-                st.success(f"Ground truth: {expected_class} - correct prediction")
+                truth_class = "truth-correct"
+                truth_message = f"Ground truth: {expected_class} - correct prediction"
             else:
-                st.warning(
-                    f"Ground truth: {expected_class} - predicted as {prediction.class_name}"
-                )
+                truth_class = "truth-incorrect"
+                truth_message = f"Ground truth: {expected_class} - incorrect prediction"
+            st.markdown(
+                f'<div class="truth-banner {truth_class}">'
+                f"{html.escape(truth_message)}</div>",
+                unsafe_allow_html=True,
+            )
         render_score_breakdown(prediction.scores)
