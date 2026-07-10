@@ -33,7 +33,9 @@ class StreamlitAppTests(unittest.TestCase):
         self.assertEqual(app.selectbox[0].value, "Cracked")
         rendered = "\n".join(block.value for block in app.markdown)
         self.assertIn("Predicted class", rendered)
-        self.assertIn("Class scores", rendered)
+        self.assertIn("Confidence scores", rendered)
+        self.assertNotIn("Host CPU forward pass", rendered)
+        self.assertNotIn("Test macro-F1", rendered)
 
     def test_upload_state_renders_without_errors(self) -> None:
         app = AppTest.from_file(str(ROOT / "app.py")).run(timeout=30)

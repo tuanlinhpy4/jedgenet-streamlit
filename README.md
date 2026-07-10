@@ -28,5 +28,3 @@ python -m unittest discover -s tests -v
 3. Set the entrypoint to `app.py` and Python to 3.11 or 3.12.
 4. Deploy. Future pushes to the selected branch trigger a rebuild.
 
-The live timing in the app is a host CPU forward pass. The STM32H750 latency
-shown in the interface is the separate INT8 benchmark reported in the paper.
