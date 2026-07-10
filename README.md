@@ -1,8 +1,8 @@
 # JedgeNet Streamlit Demo
 
 Four-class jujube surface-defect classification with the existing JedgeNet
-PyTorch checkpoint. The app supports sample images, file upload, and camera
-capture.
+PyTorch checkpoint. The app includes all 519 images from the held-out test
+split and also supports user-uploaded images.
 
 ## Local run
 

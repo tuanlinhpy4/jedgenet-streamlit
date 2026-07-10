@@ -11,13 +11,14 @@ from inference import CLASS_NAMES, JedgeNetPredictor, load_rgb_image
 
 ROOT = Path(__file__).resolve().parent
 CHECKPOINT_PATH = ROOT / "weights" / "jedgenet_4class_seed5.pth"
-SAMPLE_DIR = ROOT / "assets" / "samples"
-SAMPLES = {
-    "Cracked": SAMPLE_DIR / "cracked.png",
-    "Dry": SAMPLE_DIR / "dry.png",
-    "Insect damaged": SAMPLE_DIR / "insect_damaged.png",
-    "Invalid": SAMPLE_DIR / "invalid.png",
+TEST_DATA_DIR = ROOT / "assets" / "test_data"
+TEST_CLASS_DIRS = {
+    "Cracked": "cracked",
+    "Dry": "dry",
+    "Insect damaged": "insect_damaged",
+    "Invalid": "invalid",
 }
+SUPPORTED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 PAPER_MACRO_F1 = "95.21%"
 STM32_LATENCY = "300.6 ms"
@@ -110,7 +111,7 @@ st.markdown(
       }
 
       div[data-testid="stSegmentedControl"] { margin-top: 8px; }
-      div[data-testid="stFileUploader"], div[data-testid="stCameraInput"] {
+      div[data-testid="stFileUploader"] {
         background: var(--surface);
         border-radius: 7px;
       }
@@ -203,6 +204,18 @@ def get_predictor(checkpoint_path: str) -> JedgeNetPredictor:
     return JedgeNetPredictor(checkpoint_path)
 
 
+@st.cache_data(show_spinner=False)
+def get_test_images(class_directory: str) -> tuple[str, ...]:
+    directory = TEST_DATA_DIR / class_directory
+    if not directory.is_dir():
+        return ()
+    return tuple(
+        path.name
+        for path in sorted(directory.iterdir())
+        if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
+    )
+
+
 def render_score_breakdown(scores: tuple[float, ...]) -> None:
     st.markdown("#### Class scores")
     for class_name, score in sorted(
@@ -223,8 +236,8 @@ st.markdown(
       <div>
         <div class="brand-name">JedgeNet</div>
         <div class="brand-subtitle">
-          <span class="desktop-subtitle">Jujube surface defect classification · four classes · 64 × 64 RGB</span>
-          <span class="mobile-subtitle">Four-class inspection · 64 × 64 RGB</span>
+          <span class="desktop-subtitle">Jujube surface defect classification &middot; four classes &middot; 64 &times; 64 RGB</span>
+          <span class="mobile-subtitle">Four-class inspection &middot; 64 &times; 64 RGB</span>
         </div>
       </div>
     </div>
@@ -247,16 +260,52 @@ st.markdown(
 st.markdown('<div class="section-label">Input</div>', unsafe_allow_html=True)
 input_mode = st.segmented_control(
     "Input source",
-    options=("Upload", "Camera"),
-    default="Upload",
+    options=("Built-in test data", "Upload your image"),
+    default="Built-in test data",
     label_visibility="collapsed",
     width="stretch",
 )
 
 image = None
 source_label = None
+expected_class = None
 
-if input_mode == "Upload":
+if input_mode == "Built-in test data":
+    test_image_counts = {
+        class_name: len(get_test_images(class_directory))
+        for class_name, class_directory in TEST_CLASS_DIRS.items()
+    }
+    st.caption(
+        f"Browse all {sum(test_image_counts.values())} images from the held-out test split."
+    )
+    class_col, image_col = st.columns((0.8, 1.2), gap="medium")
+    with class_col:
+        expected_class = st.selectbox(
+            "Ground-truth class",
+            options=tuple(TEST_CLASS_DIRS),
+            format_func=lambda class_name: (
+                f"{class_name} ({test_image_counts[class_name]} images)"
+            ),
+        )
+
+    class_directory = TEST_CLASS_DIRS[expected_class]
+    test_images = get_test_images(class_directory)
+    with image_col:
+        selected_name = st.selectbox(
+            "Test image",
+            options=test_images,
+            placeholder="No test images found",
+        )
+
+    if selected_name:
+        selected_path = TEST_DATA_DIR / class_directory / selected_name
+        try:
+            image = load_rgb_image(selected_path)
+            source_label = selected_name
+        except (UnidentifiedImageError, OSError, ValueError):
+            st.error("The selected test image could not be decoded.", icon=":material/error:")
+
+elif input_mode == "Upload your image":
     uploaded = st.file_uploader(
         "Upload a jujube image",
         type=("jpg", "jpeg", "png", "webp", "bmp"),
@@ -269,37 +318,8 @@ if input_mode == "Upload":
         except (UnidentifiedImageError, OSError, ValueError):
             st.error("The uploaded file could not be decoded as an image.", icon=":material/error:")
 
-    st.markdown('<div class="section-label">Try a sample</div>', unsafe_allow_html=True)
-    sample_cols = st.columns(4)
-    for column, (class_name, sample_path) in zip(sample_cols, SAMPLES.items()):
-        with column:
-            st.image(str(sample_path), width="stretch")
-            if st.button(
-                class_name,
-                key=f"sample-{class_name}",
-                width="stretch",
-            ):
-                st.session_state["selected_sample"] = str(sample_path)
-
-    if image is None:
-        selected_sample = st.session_state.get("selected_sample")
-        if selected_sample:
-            selected_path = Path(selected_sample)
-            if selected_path.is_file():
-                image = load_rgb_image(selected_path)
-                source_label = selected_path.stem.replace("_", " ").title()
-
-elif input_mode == "Camera":
-    captured = st.camera_input("Capture a jujube image")
-    if captured is not None:
-        try:
-            image = load_rgb_image(captured)
-            source_label = "Camera capture"
-        except (UnidentifiedImageError, OSError, ValueError):
-            st.error("The camera image could not be decoded.", icon=":material/error:")
-
 if image is None:
-    st.info("Choose a sample, upload an image, or use the camera to run JedgeNet.", icon=":material/image_search:")
+    st.info("Select a test image or upload your own image to run JedgeNet.", icon=":material/image_search:")
 else:
     st.markdown('<div class="section-label">Analysis</div>', unsafe_allow_html=True)
     try:
@@ -325,6 +345,13 @@ else:
             """,
             unsafe_allow_html=True,
         )
+        if expected_class is not None:
+            if prediction.class_name == expected_class:
+                st.success(f"Ground truth: {expected_class} - correct prediction")
+            else:
+                st.warning(
+                    f"Ground truth: {expected_class} - predicted as {prediction.class_name}"
+                )
         render_score_breakdown(prediction.scores)
         st.markdown(
             f"""

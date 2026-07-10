@@ -24,7 +24,8 @@ class InferenceTests(unittest.TestCase):
         self.assertTrue(np.isfinite(tensor.numpy()).all())
 
     def test_checkpoint_predicts_four_scores(self) -> None:
-        image = Image.open(ROOT / "assets" / "samples" / "cracked.png")
+        image_path = next((ROOT / "assets" / "test_data" / "cracked").glob("*.png"))
+        image = Image.open(image_path)
         prediction = self.predictor.predict(image)
         self.assertIn(prediction.class_name, CLASS_NAMES)
         self.assertEqual(len(prediction.scores), 4)
